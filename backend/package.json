@@ -1,0 +1,21 @@
+{
+  "name": "project-and-portfolio3",
+  "version": "1.0.0",
+  "description": "A music search app that integrates with Spotify's REST API to allow users to search for **artists, albums, and tracks**.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.10.0"
+  }
+}
