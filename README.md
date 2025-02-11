@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # project-portfolio3
 =======
 # Spotify Music Search
