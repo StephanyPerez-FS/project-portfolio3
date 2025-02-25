@@ -1,12 +1,12 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const axios = require("axios");
 const connectDB = require("./db");
 const passport = require("passport");
 const SpotifyStrategy = require("passport-spotify").Strategy;
 const jwt = require("jsonwebtoken");
 const session = require("express-session");
-const axios = require("axios");
 const Session = require("./models/Session");
 
 // Connect to MongoDB
@@ -28,6 +28,30 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+// JWT Validation Middleware
+const validateJWT = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ status: false, error: "No token provided." });
+  }
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = { id: decoded.id };
+    const session = await Session.findOne({ userId: decoded.id });
+
+    if (!session) {
+      return res
+        .status(401)
+        .json({ status: false, error: "Session not found." });
+    }
+    next();
+  } catch (err) {
+    res.status(401).json({ status: false, error: "Invalid or expired token." });
+  }
+};
+
 // Spotify OAuth Strategy
 passport.use(
   new SpotifyStrategy(
@@ -37,15 +61,26 @@ passport.use(
       callbackURL: process.env.SPOTIFY_REDIRECT_URI,
     },
     async (accessToken, refreshToken, expires_in, profile, done) => {
-      const token = jwt.sign({ id: profile.id }, process.env.JWT_SECRET, {
+      const jwtToken = jwt.sign({ id: profile.id }, process.env.JWT_SECRET, {
         expiresIn: "1h",
       });
 
+      console.log("Received Spotify Access Token:", accessToken); // Debug
+
       try {
-        const session = new Session({ userId: profile.id, jwtToken: token });
-        await session.save();
-        return done(null, { profile, token });
+        await Session.findOneAndUpdate(
+          { userId: profile.id },
+          {
+            jwtToken: jwtToken,
+            spotifyAccessToken: accessToken,
+            refreshToken: refreshToken,
+          },
+          { upsert: true, new: true }
+        );
+        console.log("Session saved successfully.");
+        return done(null, { profile, token: jwtToken });
       } catch (err) {
+        console.error("Error saving session:", err.message);
         return done(err, null);
       }
     }
@@ -73,70 +108,60 @@ app.get(
   "/spotify/v1/callback",
   passport.authenticate("spotify", { failureRedirect: "/" }),
   (req, res) => {
+    if (!req.user || !req.user.token) {
+      return res.status(500).json({ error: "Access token not saved." });
+    }
     res.json({ message: "Logged in successfully!", token: req.user.token });
   }
 );
 
-// Check JWT Status Route
-app.get("/spotify/v1/status", (req, res) => {
-  if (req.isAuthenticated()) {
-    res.json({ status: true, user: req.user });
-  } else {
-    res.json({ status: false });
+// Check JWT Status
+app.get("/spotify/v1/status", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ status: false, error: "No token provided." });
+  }
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const session = await Session.findOne({ userId: decoded.id });
+
+    if (session) {
+      res.json({ status: true });
+    } else {
+      res.json({ status: false, error: "Session not found." });
+    }
+  } catch (err) {
+    res.status(401).json({ status: false, error: "Invalid or expired token." });
   }
 });
 
-// Search Route
-app.get("/spotify/v1/search", async (req, res) => {
+// Search Route (Protected)
+app.get("/spotify/v1/search", validateJWT, async (req, res) => {
   const { query, type } = req.query;
-  const token = req.user?.token;
+  const session = await Session.findOne({ userId: req.user.id });
 
-  if (!token)
-    return res
-      .status(401)
-      .json({ error: "Unauthorized. Please log in first." });
+  if (!session || !session.spotifyAccessToken) {
+    return res.status(401).json({ error: "No valid Spotify access token." });
+  }
+
+  console.log("Using Spotify access token:", session.spotifyAccessToken);
 
   try {
     const response = await axios.get(
       `https://api.spotify.com/v1/search?q=${encodeURIComponent(
         query
       )}&type=${type}`,
-      { headers: { Authorization: `Bearer ${token}` } }
+      { headers: { Authorization: `Bearer ${session.spotifyAccessToken}` } }
     );
     res.json(response.data);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Spotify API Error:", error.response?.data || error.message);
+    res.status(500).json({ error: error.response?.data || error.message });
   }
 });
 
-// Logout Route
-app.get("/spotify/v1/logout", (req, res) => {
-  req.logout(() => res.json({ message: "Logged out successfully!" }));
-});
-
-// Refresh Token Route
-app.post("/spotify/v1/refresh", async (req, res) => {
-  const refreshToken = req.body.refreshToken;
-
-  try {
-    const response = await axios.post(
-      "https://accounts.spotify.com/api/token",
-      null,
-      {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        params: {
-          grant_type: "refresh_token",
-          refresh_token: refreshToken,
-          client_id: process.env.SPOTIFY_CLIENT_ID,
-          client_secret: process.env.SPOTIFY_CLIENT_SECRET,
-        },
-      }
-    );
-    res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
+// Start Server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

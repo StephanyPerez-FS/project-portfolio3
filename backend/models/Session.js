@@ -3,7 +3,8 @@ const mongoose = require("mongoose");
 const sessionSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   jwtToken: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now, expires: 3600 },
+  spotifyAccessToken: { type: String, required: true },
+  refreshToken: { type: String, required: true },
 });
 
 module.exports = mongoose.model("Session", sessionSchema);
