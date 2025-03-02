@@ -98,8 +98,13 @@ app.get("/", (req, res) => {
 // Login Route
 app.get(
   "/spotify/v1/login",
+  (req, res, next) => {
+    console.log("Redirecting user to Spotify authentication...");
+    next();
+  },
   passport.authenticate("spotify", {
     scope: ["user-read-email", "user-read-private"],
+    showDialog: true,
   })
 );
 
@@ -108,10 +113,8 @@ app.get(
   "/spotify/v1/callback",
   passport.authenticate("spotify", { failureRedirect: "/" }),
   (req, res) => {
-    if (!req.user || !req.user.token) {
-      return res.status(500).json({ error: "Access token not saved." });
-    }
-    res.json({ message: "Logged in successfully!", token: req.user.token });
+    console.log("User authenticated, sending token...");
+    res.redirect(`http://localhost:3000/?token=${req.user.token}`);
   }
 );
 

@@ -1,25 +1,32 @@
-import axios from "axios";
-
-const API_URL = "http://localhost:3001/spotify/v1";
-
-export const loginToSpotify = async () => {
-  try {
-    const response = await axios.get(`${API_URL}/login`);
-    return response.data.token;
-  } catch (error) {
-    console.error("Error logging in:", error);
-    return null;
-  }
-};
-
 export const searchSpotify = async (query, type) => {
+  const token = localStorage.getItem("jwt");
+
+  if (!token) {
+    console.error("No token found. Redirecting to login.");
+    window.location.href = "/"; // Redirect to login if no token
+    return;
+  }
+
   try {
-    const response = await axios.get(`${API_URL}/search`, {
-      params: { query, type },
-    });
-    return response.data;
+    const response = await fetch(
+      `http://localhost:3001/spotify/v1/search?query=${encodeURIComponent(
+        query
+      )}&type=${type}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Error: ${response.statusText}`);
+    }
+
+    return await response.json();
   } catch (error) {
-    console.error("Error searching Spotify:", error);
-    return null;
+    console.error("Search request failed:", error);
+    return { artists: { items: [] } };
   }
 };
